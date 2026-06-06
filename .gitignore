@@ -1,0 +1,17 @@
+# Arquivos gerados pelo Rojo
+/sourcemap.json
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
+# Definicoes de tipo do Roblox (baixadas pelo hook de inicializacao)
+/tools/globalTypes.d.luau
+
+# Ferramentas instaladas localmente
+/.tools/
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+*.swp

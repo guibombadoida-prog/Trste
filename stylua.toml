@@ -1,0 +1,9 @@
+# Configuracao do StyLua (formatador de codigo Luau).
+# Mantem todos os scripts com o mesmo estilo.
+column_width = 100
+line_endings = "Unix"
+indent_type = "Tabs"
+indent_width = 4
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"
+collapse_simple_statement = "Never"

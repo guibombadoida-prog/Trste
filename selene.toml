@@ -1,0 +1,11 @@
+# Configuracao do selene (linter de qualidade de codigo).
+#
+# Usamos a std "luau" (entende a sintaxe Luau, incluindo tipos).
+# Quem cuida dos globais do Roblox (game, workspace, task, Instance...) e
+# da checagem de TIPOS e o luau-lsp. Por isso desligamos aqui o lint de
+# "variavel indefinida": assim o selene nao reclama de game/task/etc.,
+# e foca no que ele faz de melhor (variaveis nao usadas, shadowing, etc.).
+std = "luau"
+
+[lints]
+undefined_variable = "allow"

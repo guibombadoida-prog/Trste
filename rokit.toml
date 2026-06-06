@@ -1,0 +1,14 @@
+# Toolchain do projeto (para uso LOCAL, na sua maquina).
+#
+# Instale o Rokit (https://github.com/rojo-rbx/rokit) e rode `rokit install`
+# nesta pasta para baixar exatamente estas versoes das ferramentas.
+#
+# Obs.: dentro do Claude Code na web, as ferramentas sao instaladas
+# automaticamente pelo hook .claude/hooks/session-start.sh (o Rokit nao
+# funciona la por causa do proxy de rede do ambiente).
+
+[tools]
+rojo = "rojo-rbx/rojo@7.6.1"
+selene = "Kampfkarren/selene@0.31.0"
+stylua = "JohnnyMorganz/StyLua@2.5.2"
+luau-lsp = "JohnnyMorganz/luau-lsp@1.68.0"
