@@ -1,0 +1,355 @@
+---
+name: explosive-battlegrounds
+description: >
+  Regras, padrões e arquitetura completa do projeto Explosive Battlegrounds (Roblox Studio).
+  Use este skill SEMPRE que o usuário pedir para criar, editar, corrigir ou analisar qualquer
+  script, tool, habilidade, sistema, VFX, SFX ou mecânica do jogo Explosive Battlegrounds /
+  Campos de Batalha Explosivos. Também use quando mencionar personagens (Noob, Calebe, Danilo,
+  Gui a Bomba, ICAN_REA0), habilidades passivas (Soco, Defesa, Dash), tools, CharacterSelection,
+  PassiveCombat, ou qualquer desenvolvimento do projeto Retro-Verse / Studios.
+---
+
+# EXPLOSIVE BATTLEGROUNDS — SKILL COMPLETA
+## Retro-Verse / Studios | Roblox Studio
+**Versão:** 2.0 | **Plataforma:** Roblox Studio
+
+---
+
+## 🔴 REGRA ABSOLUTA — LER ANTES DE QUALQUER COISA
+
+> **NUNCA criar lógica, script, tool ou sistema do zero.**
+> SEMPRE localizar o que já existe no `ServerStorage/Tools` e usar como base.
+> Adaptar, expandir, combinar — nunca ignorar o que já existe.
+
+Se a tarefa não tem base em nada existente → **pedir aprovação explícita antes de criar**.
+
+---
+
+## 🧩 O PRINCÍPIO LEGO
+
+Toda tool/habilidade nova é montada como LEGO:
+- Pegar **VFX** de uma tool existente
+- Pegar **SFX** de outra
+- Pegar **funções** de uma terceira
+- Pegar **mecânicas** de uma quarta
+- Combinar tudo → criar algo único
+
+**Sempre citar a origem de cada peça no comentário do script.**
+
+```lua
+-- BASE: Fists (Soco) → sfxdata IDs punch1-4, BodyVelocity knockback
+-- BASE: escudo noob  → C0 welds de bloqueio, WalkSpeed 0.7
+-- BASE: His Cube     → ContextActionService BindAction/SetTitle/SetPosition
+-- BASE: dodge/dash   → CFrames EXATAS das animações (Rufus14), dhtime=0.65
+```
+
+---
+
+## 📁 ESTRUTURA DE PASTAS DO PROJETO
+
+```
+ServerStorage/
+├── Tools/                          ← BASE de referência obrigatória
+│   ├── Fists (Soco)               ← Base: Soco, hitbox, dano, knockback
+│   ├── escudo noob (Defesa)       ← Base: Bloqueio, sons, C0 welds
+│   ├── majima bomb (Lançamento)   ← Base: física de lançamento + arco
+│   ├── His Cube (BOTOES MOBILE)   ← Base: ContextActionService, botões
+│   ├── Lightning Cannon (vfx tiro)← Base: VFX de projétil/tiro
+│   ├── Frost Blade (gelo)         ← Base: animações R6/R15, efeito freeze
+│   ├── SpaceSwordGreen (refletir) ← Base: refletir projéteis
+│   └── dodge/dash (SKILL PASSIVA) ← Base: CFrames dash, Rufus14
+├── VFX/
+│   ├── explosao efeito vfx        ← VFX de explosão
+│   ├── Determination              ← camshake, flash, trident VFX
+│   ├── CosmicVFX2                 ← Explosion_Sphere, MegaWave, Orb, Ring
+│   ├── Jupiter Great Sword        ← VFX profissional espada
+│   ├── Jupiter Great Pressure Sword ← VFX profissional pressão
+│   ├── death note (evaporamento)  ← VFX de morte/evaporação
+│   └── StravantLightning (transf.)← VFX de transformação/raio
+├── Mechanics/
+│   ├── ScreenShake                ← ShakeScriptAdder (camera shake)
+│   ├── Server (TWEEN)             ← tweens, sons (Explode,Spike,Scar...)
+│   └── Judgement Cut End          ← mechânica de corte completa
+└── SFX/                           ← Áudios inseridos MANUALMENTE
+
+ReplicatedStorage/
+├── Characters/                    ← Modelos dos personagens
+│   ├── Noob
+│   ├── Calebe
+│   ├── Danilo
+│   ├── Gui a Bomba
+│   └── ICAN_REA0
+├── CharacterTools/                ← Tools de cada personagem
+│   ├── Noob/                      ← Tools exclusivas do Noob
+│   ├── Calebe/
+│   ├── Danilo/
+│   ├── Gui a Bomba/
+│   └── ICAN_REA0/
+├── CharacterPrices                ← ModuleScript de preços
+├── CharacterSelectionEvent        ← RemoteEvent seleção
+└── PassiveCombat/                 ← RemoteEvents das habilidades passivas
+    ├── Punch
+    ├── Block
+    └── Dash
+
+ServerScriptService/
+├── Leaderstats                    ← Cash inicial=500
+├── CharacterSelectionServer       ← V2: morph + GiveTools + CharacterLocked
+├── PassiveCombatServer            ← V1: Soco/Defesa/Dash server-side
+└── DMG                            ← HurtGui
+
+StarterPlayer/
+└── StarterCharacterScripts/
+    └── PassiveCombatClient        ← V2: Botões + animações CFrame
+```
+
+---
+
+## 👥 PERSONAGENS
+
+| Personagem | Preço | Status Tools |
+|---|---|---|
+| Noob | 0 (grátis) | Em desenvolvimento |
+| Calebe | 0 (grátis) | Tools placeholder |
+| Danilo | 0 (grátis) | Tool: fish |
+| Gui a Bomba | 0 (grátis) | Tools placeholder |
+| ICAN_REA0 | 0 (grátis) | Jupiter Great Pressure Sword |
+
+---
+
+## ⚔️ SISTEMA DE HABILIDADES PASSIVAS
+
+### Regra crítica
+> Aparecem **APENAS** quando o jogador selecionou um personagem.
+> Sem personagem equipado = **zero botões na tela**.
+
+### Fluxo de ativação
+```
+Jogador seleciona personagem
+       ↓
+CharacterSelectionServer: MorphCharacter()
+       ↓
+Insere BoolValue "CharacterSelected" no NewChar
+       ↓
+FireClient(player, "CharacterLocked")
+       ↓
+PassiveCombatClient detecta → ativa os 3 botões
+```
+
+### Scripts envolvidos
+- `PassiveCombatServer` (ServerScriptService) — dano, knockback, bloqueio server-side
+- `PassiveCombatClient` (StarterCharacterScripts) — botões, animações CFrame, VFX local
+- `ReplicatedStorage/PassiveCombat/` — RemoteEvents: Punch, Block, Dash
+
+### As 3 habilidades
+
+**👊 Soco**
+- Input: `E` (PC) | `ButtonX` (Console) | Botão tela (Mobile)
+- Base: `Fists (Soco)` — SFX punch1-4, hitflesh1-3, BodyVelocity knockback
+- Dano: 15 | Range: 6 | Cooldown: 0.5s
+- Animação: CFrame lerp no Right Arm (extend → retract)
+
+**🛡 Defesa (SEGURAR)**
+- Input: `F` (PC, segurar) | `ButtonR2` (Console) | Botão tela (Mobile)
+- Base: `escudo noob` — C0 welds exatos Rufus14, WalkSpeed × 0.7
+- Reduz 80% do dano | 20% de chance de negar 100%
+- Animação: welds rightarmw/headw/rootpartw/leftarmw com lerp RunService.Stepped
+
+**💨 Dash**
+- Input: `Q` (PC) | `ButtonCircle` (Console) | Botão tela (Mobile)
+- Base: `dodge/dash (SKILL PASSIVA)` — CFrames EXATAS Rufus14
+- Parâmetros: `dhposepeed=25`, `dhanimspeed=20`, `dhtime=0.65`
+- 15% chance de empurrão ao passar perto de NPC/jogador
+- VFX: esfera Neon com TweenService (base: His Cube AbbilityClient)
+
+### Posições dos botões (scale-only, sem pixel)
+```lua
+-- His Cube ContextActionService (base)
+SetPosition("PassivePunch", UDim2.new(0.5,  0, 0,    0))
+SetPosition("PassiveBlock", UDim2.new(0.35, 0, 0,    0))
+SetPosition("PassiveDash",  UDim2.new(0.5,  0, -0.5, 0))
+```
+
+---
+
+## 🎮 SISTEMA DE SELEÇÃO DE PERSONAGENS
+
+### CharacterSelectionServer V2
+```
+PlayerAdded → cria Folder "UserId's OwnedCharacters"
+           → carrega DataStore por personagem
+           → FireClient "CheckOwnedCharacters"
+
+OnServerEvent(player, chosenCharacter)
+   → verifica cooldown (LockedPlayers)
+   → verifica preço e posse
+   → MorphCharacter()
+       → clona modelo de ReplicatedStorage/Characters
+       → insere BoolValue "CharacterSelected"
+       → FireClient "CharacterLocked"
+       → task.wait(0.1) → GiveTools()
+       → humanoid.Died → LockedPlayers[userId]=nil
+                       → FireClient "CharacterUnlocked"
+```
+
+### GiveTools()
+```
+Lê ReplicatedStorage/CharacterTools/<nome>/
+Para cada filho:
+  - Se Tool → clona direto para Backpack
+  - Se StringValue → busca em ServerStorage/Tools pelo nome
+```
+
+### CharacterPrices (ModuleScript)
+```lua
+{ Noob=0, Calebe=0, Danilo=0, ICAN_REA0=0, ["Gui a Bomba"]=0 }
+```
+
+### Mensagens do RemoteEvent
+| Mensagem | Direção | Significado |
+|---|---|---|
+| `"CheckOwnedCharacters"` | Server→Client | Atualizar UI de posse |
+| `"CharacterLocked"` | Server→Client | Personagem escolhido, ativa passivas |
+| `"CharacterUnlocked"` | Server→Client | Morreu, pode escolher novamente |
+| `"NotOwned"` | Server→Client | Sem cash suficiente |
+| `<nome do personagem>` | Client→Server | Jogador selecionou personagem |
+
+---
+
+## 🛠 REGRAS DE TOOLS
+
+### Propriedades obrigatórias
+```lua
+tool.CanBeDropped  = false  -- SEMPRE
+tool.RequiresHandle = true  -- SEMPRE
+tool.ToolTip       = "Nome — Descrição"
+-- Handle com nome exato "Handle" (case-sensitive)
+```
+
+### Proibições absolutas
+- ❌ `part:Destroy()` → usar `Transparency=1` ou `Parent=nil`
+- ❌ `math.random()` / randomize → valores pré-definidos
+- ❌ Destruir Humanoides → `humanoid.Health=0` apenas controlado
+- ❌ GUIs completas → apenas botões simples para habilidades Extra
+
+### Debounce padrão
+```lua
+tool.Activated:Connect(function()
+    if not tool.Enabled then return end
+    tool.Enabled = false
+    -- habilidade
+    task.wait(cooldown)
+    tool.Enabled = true
+end)
+tool.Unequipped:Connect(function()
+    tool.Enabled = true
+end)
+```
+
+### Versionamento
+`V1 → V2 → V3` sequencial. Sempre informar qual script foi substituído.
+
+---
+
+## 📦 INVENTÁRIO DE PEÇAS DISPONÍVEIS
+
+### SFX IDs (do Fists sfxdata)
+```
+punch1=4306980885  punch2=3932505023  punch3=3932506183  punch4=3932504231
+hitflesh1=3744371091  hitflesh2=3744371864  hitflesh3=3744371342
+block1=4306994664  block2=4306995205  block3=4306994923
+bash=2801263  concrete=1476374050  equip=4549835866
+swing1=8907343824  swing2=9076453292  knuckles=691183830
+```
+
+### SFX do Server TWEEN (Mechanics)
+```
+Explode, Spike, Supernova, Scar, ShuriHit, Cut, anglusdie
+Locked On, TeleportActive, ShurikenExplode
+```
+
+### SFX do escudo noob (Handle)
+```
+block, block2, block3, block4, equip
+```
+
+### VFX CosmicVFX2 (ServerStorage/VFX)
+```
+Explosion_Sphere, Explosion_Wind, MegaWave, MegaWave2
+Orb, Ring22, SwirlShockwaveFire, WindWave, Core, MainCore
+Nova_Circle, Nova_Wave, ShurikenModel
+```
+
+### Mechanics disponíveis
+```
+ScreenShake/ShakeScriptAdder   ← camera shake
+Server (TWEEN)/tween1-4, tweenring, tweenball, SlashTween
+Judgement Cut End              ← mechânica completa de corte
+```
+
+### Animações CFrame do dodge/dash (Rufus14)
+```lua
+-- rightarmw target:
+CFrame.new(0.684235096,1.33451939,-0.838968992, ...)
+-- leftarmw target:
+CFrame.new(-1.57399178,0.127386093,0.178021431, ...)
+-- rightlegw: animado com tick()*dhanimspeed (=20)
+-- leftlegw:  animado com tick()*dhanimspeed (=20)
+-- headw target:
+CFrame.new(-0.0150771141,1.38368225,0.320251703, ...)
+-- rootpartw: oscila com sin/cos tick()*dhanimspeed*2
+-- Parâmetros: dhposepeed=25, dhanimspeed=20, dhtime=0.65
+```
+
+### C0 welds escudo noob (Rufus14)
+```lua
+rightarm.C0 = CFrame.new(1.40557981,0.499999762,-0.579227924, ...)
+head.C0     = CFrame.new(0,1.49999976,0, 0.173648208,0,-0.98480767, ...)
+rootpart.C0 = CFrame.new(0,0,0, 0.173648134,0,0.98480773, ...)
+```
+
+---
+
+## 🔌 REGRAS DO STUDIO MCP
+
+- `execute_luau` SEMPRE precisa de `return` para ter output
+- Paths com espaços/parênteses → usar `execute_luau` com `.Source`
+- `search_game_tree` com `max_depth` 4-6 para melhor detalhe
+- `multi_edit` pode dar timeout em scripts grandes → fallback para `execute_luau`
+- **Reconexão:** `list_roblox_studios` → `set_active_studio` a cada sessão nova
+- O ID do Studio muda a cada reconexão — nunca reutilizar ID antigo
+
+---
+
+## 📋 CHECKLIST ANTES DE CRIAR QUALQUER COISA
+
+- [ ] Verificar pasta `ServerStorage/Tools` — existe tool similar?
+- [ ] Listei as peças LEGO que vou usar e suas origens?
+- [ ] VFX referencia assets existentes?
+- [ ] SFX usa IDs já catalogados acima?
+- [ ] `CanBeDropped = false` e `RequiresHandle = true`?
+- [ ] Handle com nome exato `"Handle"`?
+- [ ] Nenhuma função proibida (Destroy, random, GUI completa)?
+- [ ] Versionamento correto (V1/V2/V3)?
+- [ ] Scripts nomeados no padrão `[Tool]_[Função]_V[N]`?
+
+---
+
+## 📝 FORMATO DE ENTREGA OBRIGATÓRIO
+
+```
+Scripts Entregues — [Nome da Tool]
+Versão: V[X]
+
+Scripts Novos:
+  - [Nome]_V1 — [função]
+
+Scripts Modificados:
+  - [Nome]_V1 → V2 — mudanças: [descrição]
+
+Scripts Substituídos:
+  - [Antigo]_V1 → removido, substituído por [Novo]_V2
+
+Scripts Reutilizados (LEGO):
+  - [Peça] — Origem: [Tool] — Função: [o que faz]
+```

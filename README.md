@@ -158,28 +158,35 @@ Em vez de copiar script por script, dá para trazer o projeto inteiro com o **Ro
 ```
 .
 ├── README.md                  ← este guia
+├── docs/
+│   ├── MAPA-DE-INSTALACAO.md  ← ONDE colocar cada script no Studio (LEIA!)
+│   └── referencia/            ← guias originais (personagens, regras)
 ├── default.project.json       ← mapa: pastas src/ ↔ serviços do Studio (Rojo)
-├── rokit.toml                 ← versões das ferramentas (uso local)
-├── selene.toml                ← config do linter
-├── stylua.toml                ← config do formatador
-├── .luaurc                    ← config da checagem de tipos Luau
+├── selene.toml · stylua.toml · .luaurc · rokit.toml  ← configs das ferramentas
 ├── scripts/
 │   ├── validar.sh             ← valida formatação + lint + tipos
 │   └── instalar-ferramentas.sh← baixa as ferramentas
-└── src/                       ← TODOS os scripts do jogo ficam aqui
-    ├── ServerScriptService/
-    │   └── Main.server.luau   ← exemplo: Script do servidor
+└── src/                       ← TODOS os scripts do jogo
+    ├── ReplicatedFirst/       → tela de carregamento
+    ├── ServerScriptService/   → 11 Scripts do servidor (DataManager, GameManager, ...)
     ├── ServerStorage/
     ├── ReplicatedStorage/
-    │   └── Config.luau        ← exemplo: ModuleScript compartilhado
     ├── StarterGui/
     └── StarterPlayer/
-        └── StarterPlayerScripts/
-            └── Main.client.luau ← exemplo: LocalScript do cliente
+        ├── StarterPlayerScripts/    → 10 LocalScripts (menus, HUD, ...)
+        └── StarterCharacterScripts/ → CoinDrop
 ```
 
-> Os arquivos em `src/` hoje são só **exemplos** que mostram a convenção. Pode
-> apagá-los quando seus scripts de verdade chegarem.
+> 🗺️ **Para montar o jogo, siga o [`docs/MAPA-DE-INSTALACAO.md`](docs/MAPA-DE-INSTALACAO.md)** —
+> ele diz exatamente onde colocar cada script e o que preparar no Studio
+> (pastas como `Workspace/PlayerTp`, `ReplicatedStorage/Characters`, etc.).
+
+### Sistemas já integrados
+
+Seleção/troca de personagens · Times · Spawn e Espectador · Moedas · HP ·
+Anti-tool após a morte · Administrador · Tutorial · Missões (recompensas
+diárias) · Música · Tela de carregamento — mais a base que liga tudo
+(DataManager, MainSystemInitializer, UnifiedMenu, sincronização).
 
 ---
 

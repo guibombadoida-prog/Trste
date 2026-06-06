@@ -3,6 +3,10 @@
 	"tree": {
 		"$className": "DataModel",
 
+		"ReplicatedFirst": {
+			"$path": "src/ReplicatedFirst"
+		},
+
 		"ReplicatedStorage": {
 			"$path": "src/ReplicatedStorage"
 		},
@@ -22,6 +26,9 @@
 		"StarterPlayer": {
 			"StarterPlayerScripts": {
 				"$path": "src/StarterPlayer/StarterPlayerScripts"
+			},
+			"StarterCharacterScripts": {
+				"$path": "src/StarterPlayer/StarterCharacterScripts"
 			}
 		}
 	}

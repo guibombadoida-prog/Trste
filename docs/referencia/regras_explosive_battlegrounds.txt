@@ -1,0 +1,98 @@
+■
+Documento de Regras Interno — Versão 1.0
+EXPLOSIVE
+BATTLEGROUNDS
+DOCUMENTO OFICIAL DE REGRAS E PADRÕES DE DESENVOLVIMENTO
+Versão 1.0 — Uso Interno
+Este documento define as regras, padrões e mecânicas obrigatórias para o desenvolvimento
+de Explosive Battlegrounds. Todo script e mecânica DEVE partir das tools de referência
+armazenadas no Server Storage.
+1. VISÃO GERAL
+Explosive Battlegrounds é um jogo de combate em que os jogadores utilizam um conjunto de ferramentas (tools)
+como base para todas as mecânicas de jogo. Todo o desenvolvimento DEVE partir dos scripts já existentes na
+pasta de referência de tools, garantindo consistência, reaproveitamento de código e padronização entre as
+mecânicas.
+2. REGRA FUNDAMENTAL — PASTA DE REFERÊNCIA
+■■ REGRA OBRIGATÓRIA:
+Toda mecânica nova criada no jogo DEVE utilizar os scripts da pasta de tools como referência. Nenhuma lógica
+deve ser criada do zero sem antes verificar se já existe uma tool correspondente ou similar na pasta de referência
+do Server Storage.
+Fluxo obrigatório ao criar uma mecânica nova:
+■ Acessar a pasta de tools scripts no Server Storage
+■ Identificar a tool mais próxima da mecânica desejada
+■ Basear o novo script na lógica da tool encontrada
+
+■ EXPLOSIVE BATTLEGROUNDS
+Documento de Regras Interno — Versão 1.0 Pág. 2
+■ Adaptar e expandir conforme necessário, sem descartar a base
+3. MECÂNICAS OBRIGATÓRIAS
+As seguintes mecânicas são de implementação obrigatória em Explosive Battlegrounds. Cada uma possui uma
+tool de referência definida que DEVE ser usada como base.
+3.1 LÓGICA DE LANÇAMENTO
+Base Script de lançamento presente na pasta de tools
+Física Gravidade avançada e decente — simulação realista de arco de projétil
+com gravidade progressiva
+Requisitos Velocidade inicial configurável, queda com aceleração gravitacional,
+colisão com o ambiente
+Obs. Nenhum lançamento deve usar física simplificada (linear) sem aprovação
+3.2 LÓGICA DE SOCO (FISTS)
+Base 100% baseado na tool Fists
+Comportamento Animação de golpe, hitbox de contato, cálculo de dano e knockback
+Restrição NÃO alterar a lógica central do Fists — apenas estender via parâmetros ou
+módulos extras
+Variações Socos especiais devem herdar a base do Fists antes de adicionar efeitos
+3.3 DEFESA (ESCUDO NOOB)
+Base Baseado na tool Escudo Noob
+Comportamento Bloqueio de projéteis e ataques corpo a corpo, cooldown de ativação
+Customização Visual e valores de absorção podem ser ajustados, mas a lógica de
+bloqueio deve ser mantida
+Restrição Não substituir o sistema de defesa por um criado do zero
+
+■ EXPLOSIVE BATTLEGROUNDS
+Documento de Regras Interno — Versão 1.0 Pág. 3
+3.4 LÓGICA DE VFX
+Base Baseada nas tools scripts de VFX já existentes na pasta de referência
+Tipos obrigatórios Explosão, impacto de soco, ativação de escudo, lançamento de projétil
+Padrão Todos os VFX devem referenciar partículas e efeitos já definidos nas tools
+— sem assets externos não aprovados
+Nomenclatura Seguir o padrão de nomes das tools originais, com sufixo de variação se
+necessário
+3.5 LÓGICA DE SFX
+Origem Os arquivos de áudio serão inseridos MANUALMENTE na pasta designada
+Função do Script O script de SFX deve referenciar os arquivos pela pasta — não embutir
+sons diretamente no código
+Tipos obrigatórios Som de golpe, som de bloqueio, som de lançamento, som de explosão,
+som de hit
+Formato Seguir o padrão de nomenclatura definido no documento de assets
+3.6 MECÂNICAS NOVAS
+Regra Qualquer mecânica nova DEVE ser baseada em tools scripts já existentes
+na pasta de referência
+Processo Verificar pasta → encontrar tool similar → adaptar → documentar a tool de
+origem
+Proibido Criar lógicas paralelas que ignorem as tools existentes
+Aprovação Mecânicas sem base em tools existentes precisam de aprovação explícita
+antes de serem implementadas
+4. ESTRUTURA DE PASTAS (REFERÊNCIA)
+A estrutura abaixo deve ser respeitada para manter a organização do projeto:
+Pasta Conteúdo
+ServerStorage / Tools Pasta principal de referência — todos os scripts de base
+Tools / Fists Script base de soco — obrigatório para lógica de punhos
+Tools / Escudo Noob Script base de defesa — obrigatório para lógica de bloqueio
+
+■ EXPLOSIVE BATTLEGROUNDS
+Documento de Regras Interno — Versão 1.0 Pág. 4
+Tools / VFX Scripts e partículas de efeitos visuais
+Assets / SFX Pasta manual de áudio — arquivos inseridos pelo dev
+Scripts / Mechanics Mecânicas novas derivadas das tools de referência
+5. CHECKLIST ANTES DE IMPLEMENTAR UMA MECÂNICA
+Antes de desenvolver qualquer mecânica nova, o desenvolvedor deve responder SIM para todos os itens:
+■ Verifiquei a pasta de tools scripts no Server Storage?
+■ Existe uma tool que cobre essa mecânica ou algo próximo?
+■ Meu script usa essa tool como base?
+■ O VFX referencia as partículas das tools existentes?
+■ O SFX foi inserido manualmente na pasta correta?
+■ A lógica de soco usa 100% o script Fists como base?
+■ A lógica de defesa usa o Escudo Noob como base?
+■ A física de lançamento usa gravidade avançada?
+■■ Se qualquer resposta for NÃO, a implementação deve ser pausada até regularização.
+Explosive Battlegrounds — Documento de Regras Interno | Versão 1.0
