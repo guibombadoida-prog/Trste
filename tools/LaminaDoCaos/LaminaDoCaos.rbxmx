@@ -1,0 +1,632 @@
+<roblox version="4">
+  <Item class="Tool" referent="RBX_TOOL">
+    <Properties>
+      <string name="Name">LaminaDoCaos</string>
+      <bool name="CanBeDropped">false</bool>
+      <bool name="RequiresHandle">true</bool>
+      <bool name="ManualActivationOnly">false</bool>
+      <string name="ToolTip">Lamina do Caos - Q/E/R para habilidades</string>
+    </Properties>
+    <Item class="Part" referent="RBX_HANDLE">
+      <Properties>
+        <string name="Name">Handle</string>
+        <Vector3 name="size"><X>1</X><Y>1</Y><Z>4</Z></Vector3>
+        <bool name="Anchored">false</bool>
+        <bool name="CanCollide">false</bool>
+        <token name="Material">288</token>
+        <Color3uint8 name="Color3uint8">4287335568</Color3uint8>
+      </Properties>
+    </Item>
+    <Item class="RemoteEvent" referent="RBX_REMOTE">
+      <Properties>
+        <string name="Name">Remote</string>
+      </Properties>
+    </Item>
+    <Item class="RemoteEvent" referent="RBX_SHAKE">
+      <Properties>
+        <string name="Name">CameraShake</string>
+      </Properties>
+    </Item>
+    <Item class="Script" referent="RBX_SERVER">
+      <Properties>
+        <string name="Name">LaminaDoCaos_Server_V1</string>
+        <ProtectedString name="Source"><![CDATA[-- ============================================================================
+-- LaminaDoCaos_Server_V1  (Script)  ·  FICA DENTRO DA TOOL "LaminaDoCaos"
+--
+-- Toda a logica de combate, dano e VFX (servidor).
+--
+-- REUTILIZACAO (obrigatorio avisar a origem):
+--   * createExplosionEffect ... efeito de explosao FORNECIDO por voce.
+--   * Limpeza de efeitos ...... template de limpeza FORNECIDO por voce.
+--   * Estrutura de habilidade . adaptada de "Jupiter Greatsword" (GearScript)
+--                               e "Sword of Space" (Server) -> molde
+--                               Client BindAction -> Remote:FireServer -> Server.
+--
+-- REGRAS APLICADAS:
+--   * NAO deleta partes  -> usa  parte.Parent = nil  (nunca :Destroy()).
+--   * NAO usa math.random (sem Randomize).
+--   * NAO deleta humanoides (so TakeDamage = morte controlada).
+--   * NAO cria GUI/hub (apenas botoes, no Client).
+--   * Nao da dano em aliado/mesmo time, nem no proprio dono; da dano em NPC.
+-- ============================================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Tool = script.Parent
+local Remote = Tool:WaitForChild("Remote") -- RemoteEvent (Client -> Server)
+local CameraShake = Tool:WaitForChild("CameraShake") -- RemoteEvent (Server -> Client)
+
+-- Propriedades obrigatorias do projeto
+Tool.CanBeDropped = false
+Tool.RequiresHandle = true
+Tool.ToolTip = "Lamina do Caos - Q/E/R para habilidades"
+
+-- ===================== CONFIG (ajuste com o documento de regras) =============
+local CONFIG = {
+	M1_DANO = 10,
+	M1_ALCANCE = 9,
+	M1_COOLDOWN = 0.45,
+
+	ONDA_DANO = 35,
+	ONDA_RAIO = 18,
+	ONDA_COOLDOWN = 8,
+
+	PROJETIL_DANO = 25,
+	PROJETIL_RAIO = 7,
+	PROJETIL_VELOCIDADE = 95,
+	PROJETIL_VIDA = 4,
+	PROJETIL_COOLDOWN = 6,
+
+	SALTO_DANO = 20,
+	SALTO_RAIO = 15,
+	SALTO_ALCANCE_MAX = 120,
+	SALTO_COOLDOWN = 12,
+
+	EXPLOSION_SOUND_ID = "rbxassetid://165970126", -- troque pelo seu som
+	NPC_INTERVALO = 1,
+}
+
+-- ===================== REMOCAO SEM DELETAR (regra do projeto) ================
+-- Em vez de :Destroy() (proibido), apenas removemos do jogo via Parent = nil.
+local function remover(inst, atraso)
+	if not inst then
+		return
+	end
+	if atraso then
+		task.delay(atraso, function()
+			inst.Parent = nil
+		end)
+	else
+		inst.Parent = nil
+	end
+end
+
+-- ===================== ESTADO / LIMPEZA =====================================
+local cooldowns = {} -- [donoChar] = { [acao] = horaLiberar }
+local efeitosAtivos = {} -- instancias criadas (removidas ao morrer)
+local conexoesAtivas = {} -- conexoes (desconectadas ao morrer)
+
+local function rastrearParte(parte, vida)
+	table.insert(efeitosAtivos, parte)
+	if vida then
+		remover(parte, vida)
+	end
+	return parte
+end
+
+local function rastrearConexao(con)
+	table.insert(conexoesAtivas, con)
+	return con
+end
+
+local function limparEfeitos()
+	for _, item in efeitosAtivos do
+		if item then
+			item.Parent = nil -- nunca :Destroy()
+		end
+	end
+	table.clear(efeitosAtivos)
+	for _, con in conexoesAtivas do
+		if con.Connected then
+			con:Disconnect()
+		end
+	end
+	table.clear(conexoesAtivas)
+end
+
+-- ===================== HELPERS ==============================================
+local function getDonoChar()
+	local char = Tool.Parent
+	if char and char:FindFirstChildOfClass("Humanoid") then
+		return char
+	end
+	return nil
+end
+
+local function estaVivo(char)
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum and hum.Health > 0 then
+		return true, hum, char:FindFirstChild("HumanoidRootPart")
+	end
+	return false
+end
+
+local function emCooldown(char, acao, duracao)
+	cooldowns[char] = cooldowns[char] or {}
+	local agora = os.clock()
+	if cooldowns[char][acao] and agora < cooldowns[char][acao] then
+		return true
+	end
+	cooldowns[char][acao] = agora + duracao
+	return false
+end
+
+-- Regra central: quem pode tomar dano
+local function podeAtingir(donoChar, alvoModel)
+	if alvoModel == donoChar then
+		return false -- nunca o proprio dono
+	end
+	local donoPlayer = Players:GetPlayerFromCharacter(donoChar)
+	local alvoPlayer = Players:GetPlayerFromCharacter(alvoModel)
+	if alvoPlayer then
+		if donoPlayer and alvoPlayer == donoPlayer then
+			return false -- nunca a si mesmo
+		end
+		if donoPlayer then
+			if _G.CanDamagePlayer then -- protecao de time do jogo
+				if _G.CanDamagePlayer(donoPlayer, alvoPlayer) == false then
+					return false
+				end
+			elseif _G.IsTeammate then
+				if _G.IsTeammate(donoPlayer, alvoPlayer) then
+					return false
+				end
+			end
+			if
+				donoPlayer.Team
+				and alvoPlayer.Team
+				and not donoPlayer.Neutral
+				and not alvoPlayer.Neutral
+			then
+				if donoPlayer.Team == alvoPlayer.Team then -- fallback: Teams nativos
+					return false
+				end
+			end
+		end
+	end
+	return true -- alvoPlayer == nil -> NPC: pode atingir
+end
+
+local function aplicarDano(donoChar, alvoModel, hum, dano)
+	if not hum or hum.Health <= 0 then
+		return
+	end
+	if not podeAtingir(donoChar, alvoModel) then
+		return
+	end
+	local donoPlayer = Players:GetPlayerFromCharacter(donoChar)
+	if donoPlayer then
+		local tag = Instance.new("ObjectValue") -- creator tag (kills contam)
+		tag.Name = "creator"
+		tag.Value = donoPlayer
+		tag.Parent = hum
+		remover(tag, 3)
+	end
+	hum:TakeDamage(dano) -- morte controlada (nunca deleta o humanoide)
+end
+
+local function atingirArea(donoChar, centro, raio, dano)
+	local vistos = {}
+	for _, part in workspace:GetPartBoundsInRadius(centro, raio) do
+		local model = part:FindFirstAncestorWhichIsA("Model")
+		if model and not vistos[model] then
+			vistos[model] = true
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if hum then
+				aplicarDano(donoChar, model, hum, dano)
+			end
+		end
+	end
+end
+
+local function shake(donoChar, intensidade, duracao)
+	local p = Players:GetPlayerFromCharacter(donoChar)
+	if p then
+		CameraShake:FireClient(p, intensidade, duracao)
+	end
+end
+
+-- ===================== VFX: explosao (REUSO do createExplosionEffect) ========
+-- Adaptado para NAO usar :Destroy() (usa Parent = nil) e ser rastreado.
+local function createExplosionEffect(position, scale)
+	scale = scale or 1
+
+	local ef1 = rastrearParte(Instance.new("Part"))
+	ef1.Name = "ExplosionCore"
+	ef1.BrickColor = BrickColor.new("Really red")
+	ef1.CastShadow = false
+	ef1.Material = Enum.Material.Neon
+	ef1.Size = Vector3.new(4, 4, 4) * scale
+	ef1.CFrame = CFrame.new(position)
+	ef1.CanCollide = false
+	ef1.CanTouch = false
+	ef1.CanQuery = false
+	ef1.Anchored = true
+	ef1.Shape = Enum.PartType.Ball
+	ef1.Parent = workspace
+
+	local ef2 = rastrearParte(Instance.new("Part"))
+	ef2.Name = "ExplosionShockwave"
+	ef2.BrickColor = BrickColor.new("CGA brown")
+	ef2.CastShadow = false
+	ef2.Material = Enum.Material.Neon
+	ef2.Size = Vector3.new(8, 8, 8) * scale
+	ef2.Transparency = 0.3
+	ef2.CFrame = CFrame.new(position)
+	ef2.CanCollide = false
+	ef2.CanTouch = false
+	ef2.CanQuery = false
+	ef2.Anchored = true
+	ef2.Shape = Enum.PartType.Ball
+	ef2.Parent = workspace
+
+	local ring = rastrearParte(Instance.new("Part"))
+	ring.Name = "ExplosionRing"
+	ring.BrickColor = BrickColor.new("Bright orange")
+	ring.Material = Enum.Material.Neon
+	ring.Size = Vector3.new(10, 0.5, 10) * scale
+	ring.CFrame = CFrame.new(position)
+	ring.CanCollide = false
+	ring.CanTouch = false
+	ring.CanQuery = false
+	ring.Anchored = true
+	ring.Transparency = 0.5
+	ring.Parent = workspace
+
+	local ringMesh = Instance.new("SpecialMesh")
+	ringMesh.MeshType = Enum.MeshType.Cylinder
+	ringMesh.Parent = ring
+
+	local esound = Instance.new("Sound")
+	esound.SoundId = CONFIG.EXPLOSION_SOUND_ID
+	esound.RollOffMode = Enum.RollOffMode.Inverse
+	esound.Volume = 2 * scale
+	esound.Parent = ef1
+	esound:Play()
+
+	local light = Instance.new("PointLight")
+	light.Brightness = 10 * scale
+	light.Color = Color3.new(1, 0.5, 0)
+	light.Range = 30 * scale
+	light.Parent = ef1
+
+	task.spawn(function()
+		local startTime = os.clock()
+		local duration = 1.5
+		while os.clock() - startTime < duration do
+			if not ef1.Parent then -- foi limpo (morte/desequip)
+				return
+			end
+			local progress = (os.clock() - startTime) / duration
+			local easeOut = 1 - (1 - progress) ^ 3
+			local expansion = easeOut * 15 * scale
+			ef1.Size = Vector3.new(4, 4, 4) * scale + Vector3.new(expansion, expansion, expansion)
+			ef2.Size = Vector3.new(8, 8, 8) * scale
+				+ Vector3.new(expansion * 1.5, expansion * 1.5, expansion * 1.5)
+			ring.Size = Vector3.new(10 + expansion * 2, 0.5, 10 + expansion * 2) * scale
+			ring.CFrame = CFrame.new(position) * CFrame.Angles(0, math.rad(progress * 360), 0)
+			ef1.Transparency = easeOut
+			ef2.Transparency = 0.3 + (easeOut * 0.7)
+			ring.Transparency = 0.5 + (easeOut * 0.5)
+			light.Brightness = 10 * scale * (1 - easeOut)
+			light.Range = 30 * scale * (1 - easeOut)
+			RunService.Heartbeat:Wait()
+		end
+		remover(ef1)
+		remover(ef2)
+		remover(ring)
+	end)
+end
+
+-- ===================== HABILIDADES ==========================================
+local function golpeBasico(donoChar) -- M1
+	if emCooldown(donoChar, "M1", CONFIG.M1_COOLDOWN) then
+		return
+	end
+	local vivo, _, raiz = estaVivo(donoChar)
+	if not vivo or not raiz then
+		return
+	end
+	local centro = raiz.Position + raiz.CFrame.LookVector * (CONFIG.M1_ALCANCE * 0.5)
+	atingirArea(donoChar, centro, CONFIG.M1_ALCANCE * 0.6, CONFIG.M1_DANO)
+end
+
+local function ondaDeCaos(donoChar) -- Q
+	if emCooldown(donoChar, "Q", CONFIG.ONDA_COOLDOWN) then
+		return
+	end
+	local vivo, _, raiz = estaVivo(donoChar)
+	if not vivo or not raiz then
+		return
+	end
+	shake(donoChar, 1.5, 0.5)
+	createExplosionEffect(raiz.Position, CONFIG.ONDA_RAIO / 9)
+	atingirArea(donoChar, raiz.Position, CONFIG.ONDA_RAIO, CONFIG.ONDA_DANO)
+end
+
+local function projetilDoCaos(donoChar, aimPos) -- E
+	if emCooldown(donoChar, "E", CONFIG.PROJETIL_COOLDOWN) then
+		return
+	end
+	local vivo, _, raiz = estaVivo(donoChar)
+	if not vivo or not raiz then
+		return
+	end
+	local destino = aimPos or (raiz.Position + raiz.CFrame.LookVector * 60)
+	local direcao = destino - raiz.Position
+	if direcao.Magnitude < 1 then
+		return
+	end
+	direcao = direcao.Unit
+
+	local proj = rastrearParte(Instance.new("Part"))
+	proj.Name = "ProjetilCaos"
+	proj.Shape = Enum.PartType.Ball
+	proj.Material = Enum.Material.Neon
+	proj.Color = Color3.fromRGB(255, 90, 40)
+	proj.Size = Vector3.new(2, 2, 2)
+	proj.CanCollide = false
+	proj.Anchored = true
+	proj.CFrame = CFrame.new(raiz.Position + direcao * 4)
+	proj.Parent = workspace
+
+	local vivoTempo = 0
+	local con
+	con = rastrearConexao(RunService.Heartbeat:Connect(function(dt)
+		vivoTempo += dt
+		if vivoTempo >= CONFIG.PROJETIL_VIDA or not proj.Parent then
+			con:Disconnect()
+			remover(proj)
+			return
+		end
+		proj.CFrame = proj.CFrame + direcao * (CONFIG.PROJETIL_VELOCIDADE * dt)
+		local acertou = false
+		for _, part in workspace:GetPartBoundsInRadius(proj.Position, CONFIG.PROJETIL_RAIO) do
+			local model = part:FindFirstAncestorWhichIsA("Model")
+			if model and model ~= donoChar and model:FindFirstChildOfClass("Humanoid") then
+				acertou = true
+				break
+			end
+		end
+		if acertou then
+			con:Disconnect()
+			createExplosionEffect(proj.Position, 0.8)
+			atingirArea(donoChar, proj.Position, CONFIG.PROJETIL_RAIO, CONFIG.PROJETIL_DANO)
+			remover(proj)
+		end
+	end))
+end
+
+local function saltoDimensional(donoChar, aimPos) -- R
+	if emCooldown(donoChar, "R", CONFIG.SALTO_COOLDOWN) then
+		return
+	end
+	local vivo, _, raiz = estaVivo(donoChar)
+	if not vivo or not raiz then
+		return
+	end
+	local destino = aimPos or (raiz.Position + raiz.CFrame.LookVector * 30)
+	if (destino - raiz.Position).Magnitude > CONFIG.SALTO_ALCANCE_MAX then
+		destino = raiz.Position + (destino - raiz.Position).Unit * CONFIG.SALTO_ALCANCE_MAX
+	end
+	destino = destino + Vector3.new(0, 3, 0)
+	raiz.CFrame = CFrame.new(destino, destino + raiz.CFrame.LookVector)
+	shake(donoChar, 2, 0.4)
+	createExplosionEffect(destino, CONFIG.SALTO_RAIO / 9)
+	atingirArea(donoChar, destino, CONFIG.SALTO_RAIO, CONFIG.SALTO_DANO)
+end
+
+local function executar(donoChar, tecla, aimPos)
+	if tecla == Enum.KeyCode.Q then
+		ondaDeCaos(donoChar)
+	elseif tecla == Enum.KeyCode.E then
+		projetilDoCaos(donoChar, aimPos)
+	elseif tecla == Enum.KeyCode.R then
+		saltoDimensional(donoChar, aimPos)
+	end
+end
+
+-- ===================== ENTRADA (JOGADOR) ====================================
+Tool.Activated:Connect(function() -- M1 (clique)
+	local char = getDonoChar()
+	if char and Players:GetPlayerFromCharacter(char) then
+		golpeBasico(char)
+	end
+end)
+
+Remote.OnServerEvent:Connect(function(player, tecla, aimPos)
+	local char = Tool.Parent
+	if not char or Players:GetPlayerFromCharacter(char) ~= player then
+		return -- so o dono real dispara
+	end
+	if typeof(tecla) ~= "EnumItem" then
+		return
+	end
+	if aimPos ~= nil and typeof(aimPos) ~= "Vector3" then
+		aimPos = nil
+	end
+	executar(char, tecla, aimPos)
+end)
+
+-- ===================== LIMPEZA AO MORRER / DESEQUIPAR =======================
+Tool.Equipped:Connect(function()
+	local char = getDonoChar()
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		rastrearConexao(hum.Died:Connect(limparEfeitos))
+	end
+end)
+Tool.Unequipped:Connect(limparEfeitos)
+Tool.AncestryChanged:Connect(function()
+	if not Tool.Parent then
+		limparEfeitos()
+	end
+end)
+
+-- ===================== NPC: ataque automatico (so a Onda, sem mira) =========
+local function acharAlvoProximo(donoChar, pos, alcance)
+	local melhor, dist = nil, alcance
+	for _, model in workspace:GetDescendants() do
+		if model:IsA("Model") and model ~= donoChar then
+			local raiz = model:FindFirstChild("HumanoidRootPart")
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if raiz and hum and hum.Health > 0 and podeAtingir(donoChar, model) then
+				local d = (raiz.Position - pos).Magnitude
+				if d < dist then
+					melhor, dist = raiz, d
+				end
+			end
+		end
+	end
+	return melhor
+end
+
+task.spawn(function()
+	while true do
+		task.wait(CONFIG.NPC_INTERVALO)
+		local char = getDonoChar()
+		if char and Players:GetPlayerFromCharacter(char) == nil then -- e NPC
+			local vivo, _, raiz = estaVivo(char)
+			if vivo and raiz and acharAlvoProximo(char, raiz.Position, CONFIG.ONDA_RAIO) then
+				ondaDeCaos(char)
+			end
+		end
+	end
+end)
+]]></ProtectedString>
+      </Properties>
+    </Item>
+    <Item class="LocalScript" referent="RBX_CLIENT">
+      <Properties>
+        <string name="Name">LaminaDoCaos_Client_V1</string>
+        <ProtectedString name="Source"><![CDATA[-- ============================================================================
+-- LaminaDoCaos_Client_V1  (LocalScript)  ·  FICA DENTRO DA TOOL "LaminaDoCaos"
+--
+-- Cria os BOTOES das habilidades (sem GUI/hub) e envia os inputs ao servidor.
+--
+-- REUTILIZACAO (obrigatorio avisar a origem):
+--   * Padrao de botoes (BindAction/SetTitle/SetPosition) ... script de botoes
+--     FORNECIDO por voce + Client da "Sword of Space".
+--
+-- REGRAS:
+--   * Botoes permitidos pois a Tool tem habilidades Extra (Q/E/R).
+--   * Sem GUI/hub. Sem math.random (tremor usa math.noise).
+-- ============================================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Services = {
+	Players = Players,
+	Input = (game:FindService("ContextActionService") or game:GetService("ContextActionService")),
+}
+
+local Tool = script.Parent
+local Remote = Tool:WaitForChild("Remote") -- RemoteEvent (Client -> Server)
+local CameraShake = Tool:WaitForChild("CameraShake") -- RemoteEvent (Server -> Client)
+
+local Player, Character, Humanoid
+
+-- Calcula a posicao mirada pelo mouse/toque (para as habilidades miradas)
+local function getMira()
+	local p = Services.Players.LocalPlayer
+	local mouse = p and p:GetMouse()
+	if mouse and mouse.Hit then
+		return mouse.Hit.Position
+	end
+	return nil
+end
+
+-- Dispara uma habilidade para o servidor (com a mira)
+local function ativar(tecla)
+	Remote:FireServer(tecla, getMira())
+end
+
+-- Acoes dos botoes (padrao do script fornecido: Primary/Secondary/Thirdary)
+local function Primary(_, inputState)
+	if inputState == Enum.UserInputState.Begin then
+		ativar(Enum.KeyCode.Q)
+	end
+end
+local function Secondary(_, inputState)
+	if inputState == Enum.UserInputState.Begin then
+		ativar(Enum.KeyCode.E)
+	end
+end
+local function Thirdary(_, inputState)
+	if inputState == Enum.UserInputState.Begin then
+		ativar(Enum.KeyCode.R)
+	end
+end
+
+function Equipped()
+	Player = Services.Players.LocalPlayer
+	Character = Player.Character
+	Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+	if not Humanoid or not Humanoid.Parent or Humanoid.Health <= 0 then
+		return
+	end
+
+	-- Criacao dos botoes (com botao de toque para mobile = 3o argumento true)
+	Services.Input:BindAction("Primary", Primary, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonX)
+	Services.Input:BindAction("Secondary", Secondary, true, Enum.KeyCode.E, Enum.KeyCode.ButtonY)
+	Services.Input:BindAction("Thirdary", Thirdary, true, Enum.KeyCode.R, Enum.KeyCode.ButtonA)
+
+	Services.Input:SetTitle("Primary", "Onda de Caos")
+	Services.Input:SetTitle("Secondary", "Projetil do Caos")
+	Services.Input:SetTitle("Thirdary", "Salto Dimensional")
+
+	Services.Input:SetPosition("Primary", UDim2.new(0.5, 0, -0.5, 0))
+	Services.Input:SetPosition("Secondary", UDim2.new(0.5, 0, -0.25, 0))
+	Services.Input:SetPosition("Thirdary", UDim2.new(0.5, 0, 0, 0))
+end
+
+function Unequipped()
+	-- Remove os botoes quando a Tool e desequipada
+	Services.Input:UnbindAction("Primary")
+	Services.Input:UnbindAction("Secondary")
+	Services.Input:UnbindAction("Thirdary")
+end
+
+Tool.Equipped:Connect(Equipped)
+Tool.Unequipped:Connect(Unequipped)
+
+-- ===================== TREMOR DE CAMERA (sem random) ========================
+CameraShake.OnClientEvent:Connect(function(intensidade, duracao)
+	intensidade = intensidade or 1
+	duracao = duracao or 0.4
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	local t = 0
+	local con
+	con = RunService.RenderStepped:Connect(function(dt)
+		t += dt
+		if t >= duracao then
+			con:Disconnect()
+			return
+		end
+		local forca = (1 - t / duracao) * intensidade * 0.5
+		-- math.noise = ruido Perlin (deterministico, NAO e random)
+		local ox = math.noise(t * 25, 0) * forca
+		local oy = math.noise(0, t * 25) * forca
+		camera.CFrame = camera.CFrame * CFrame.new(ox, oy, 0)
+	end)
+end)
+]]></ProtectedString>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>
