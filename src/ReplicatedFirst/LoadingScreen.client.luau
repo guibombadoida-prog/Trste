@@ -15,7 +15,8 @@ local TweenService = game:GetService("TweenService")
 -- Remove a tela de carregamento padrao do Roblox.
 ReplicatedFirst:RemoveDefaultLoadingScreen()
 
-local player = Players.LocalPlayer
+-- LocalPlayer pode ainda nao estar disponivel em ReplicatedFirst; garante nao-nil.
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Paleta retro.
@@ -94,6 +95,19 @@ barra.BackgroundColor3 = COR_NEON
 barra.BorderSizePixel = 0
 barra.Parent = trilho
 
+-- Porcentagem do carregamento.
+local porcento = Instance.new("TextLabel")
+porcento.Name = "Porcento"
+porcento.AnchorPoint = Vector2.new(0.5, 0.5)
+porcento.Position = UDim2.fromScale(0.5, 0.73)
+porcento.Size = UDim2.fromScale(0.3, 0.05)
+porcento.BackgroundTransparency = 1
+porcento.Font = Enum.Font.Code
+porcento.Text = "0%"
+porcento.TextScaled = true
+porcento.TextColor3 = COR_NEON
+porcento.Parent = fundo
+
 -- Animacao de "..." no texto de status.
 local rodando = true
 task.spawn(function()
@@ -105,9 +119,20 @@ task.spawn(function()
 	end
 end)
 
+-- Pulso de brilho neon no titulo (efeito retro).
+task.spawn(function()
+	while rodando do
+		TweenService:Create(tituloStroke, TweenInfo.new(0.8), { Thickness = 4 }):Play()
+		task.wait(0.8)
+		TweenService:Create(tituloStroke, TweenInfo.new(0.8), { Thickness = 2 }):Play()
+		task.wait(0.8)
+	end
+end)
+
 -- Acompanha o progresso real de carregamento do jogo.
 local function definirProgresso(fracao: number)
 	local f = math.clamp(fracao, 0, 1)
+	porcento.Text = string.format("%d%%", math.floor(f * 100))
 	TweenService:Create(barra, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
 		Size = UDim2.fromScale(f, 1),
 	}):Play()
