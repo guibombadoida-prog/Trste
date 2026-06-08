@@ -50,7 +50,7 @@ end
 
 local claimDailyReward = getOrCreateRemote("ClaimDailyReward", "Function")
 local getDailyRewardStatus = getOrCreateRemote("GetDailyRewardStatus", "Function")
-local claimMissionReward = getOrCreateRemote("ClaimMissionReward", "Event")
+-- ClaimMissionReward/GetMissionStatus pertencem ao MissionSystemServer (nao criar aqui)
 local recoverLostDay = getOrCreateRemote("RecoverLostDay", "Function")
 
 -- =====================================
@@ -455,11 +455,11 @@ recoverLostDay.OnServerInvoke = function(player)
 	if data.lastRecoveryUse > 0 then
 		local daysSinceLastUse = (currentDay - data.lastRecoveryUse) / 86400
 		if daysSinceLastUse < 7 then
-			return false,
-				string.format(
-					"Você pode recuperar apenas 1 dia por semana! Aguarde %.0f dias",
-					7 - daysSinceLastUse
-				)
+			local msg = string.format(
+				"Você pode recuperar apenas 1 dia por semana! Aguarde %.0f dias",
+				7 - daysSinceLastUse
+			)
+			return false, msg
 		end
 	end
 
