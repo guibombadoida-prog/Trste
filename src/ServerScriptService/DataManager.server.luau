@@ -120,6 +120,7 @@ local function getDefaultData()
 			characters_sold = 0,
 		},
 		tradeHistory = {},
+		claimedMissions = {},
 		version = DATA_VERSION,
 	}
 end
@@ -270,6 +271,11 @@ local function validateData(data)
 		validated.tradeHistory = data.tradeHistory
 	end
 
+	-- Preservar missões já resgatadas (corrige "não salva as missões realizadas")
+	if type(data.claimedMissions) == "table" then
+		validated.claimedMissions = data.claimedMissions
+	end
+
 	-- Marcar versão
 	validated.version = DATA_VERSION
 
@@ -299,6 +305,7 @@ local function getClientSafeData(data)
 		awakenedCharacters = data.awakenedCharacters,
 		stats = data.stats,
 		tradeHistory = data.tradeHistory,
+		claimedMissions = data.claimedMissions or {},
 		version = data.version,
 	}
 end

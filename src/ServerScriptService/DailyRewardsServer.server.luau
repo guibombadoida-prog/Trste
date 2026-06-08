@@ -34,15 +34,13 @@ until _G.PlayerDataManager
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local function getOrCreateRemote(name, remoteType)
-	local className = remoteType == "Function" and "RemoteFunction" or "RemoteEvent"
 	local remote = remotes:FindFirstChild(name)
-	-- Se existir com o TIPO ERRADO (ex: Event onde precisa de Function), substitui
-	if remote and not remote:IsA(className) then
-		remote.Parent = nil
-		remote = nil
-	end
 	if not remote then
-		remote = Instance.new(className)
+		if remoteType == "Function" then
+			remote = Instance.new("RemoteFunction")
+		else
+			remote = Instance.new("RemoteEvent")
+		end
 		remote.Name = name
 		remote.Parent = remotes
 		print("[DAILY V3] ✓ Remote criado: " .. name)
@@ -52,8 +50,7 @@ end
 
 local claimDailyReward = getOrCreateRemote("ClaimDailyReward", "Function")
 local getDailyRewardStatus = getOrCreateRemote("GetDailyRewardStatus", "Function")
-local claimMissionReward = getOrCreateRemote("ClaimMissionReward", "Function")
-local getMissionStatus = getOrCreateRemote("GetMissionStatus", "Function")
+-- ClaimMissionReward/GetMissionStatus pertencem ao MissionSystemServer (nao criar aqui)
 local recoverLostDay = getOrCreateRemote("RecoverLostDay", "Function")
 
 -- =====================================
@@ -137,10 +134,6 @@ local function serializeData(data)
 		canRecoverDay = data.canRecoverDay and true or false,
 		lastRecoveryUse = tonumber(data.lastRecoveryUse) or 0,
 		missionsCompleted = tonumber(data.missionsCompleted) or 0,
-		-- Persistência das missões diárias (corrige "não salva missões realizadas")
-		missionsDay = tonumber(data.missionsDay) or 0,
-		missionsClaimed = type(data.missionsClaimed) == "table" and data.missionsClaimed or {},
-		missionsProgress = type(data.missionsProgress) == "table" and data.missionsProgress or {},
 	}
 
 	return cleanData
@@ -160,9 +153,6 @@ local function deserializeData(data)
 		canRecoverDay = data.canRecoverDay or false,
 		lastRecoveryUse = tonumber(data.lastRecoveryUse) or 0,
 		missionsCompleted = tonumber(data.missionsCompleted) or 0,
-		missionsDay = tonumber(data.missionsDay) or 0,
-		missionsClaimed = type(data.missionsClaimed) == "table" and data.missionsClaimed or {},
-		missionsProgress = type(data.missionsProgress) == "table" and data.missionsProgress or {},
 	}
 end
 
@@ -195,26 +185,11 @@ local function loadDailyData(player)
 			canRecoverDay = false,
 			lastRecoveryUse = 0,
 			missionsCompleted = 0,
-			missionsDay = 0,
-			missionsClaimed = {},
-			missionsProgress = {},
 		}
 		print(string.format("[DAILY V3] ✓ Dados padrão criados: %s", player.Name))
 	end
 
 	return playerDailyData[player]
-end
-
--- Sincroniza o progresso em memória das missões para o objeto persistido
-local function syncMissions(player)
-	local data = playerDailyData[player]
-	local prog = playerMissionProgress[player]
-	if data and prog then
-		data.missionsProgress = data.missionsProgress or {}
-		for id, v in pairs(prog) do
-			data.missionsProgress[id] = v
-		end
-	end
 end
 
 local function saveDailyData(player)
@@ -225,7 +200,6 @@ local function saveDailyData(player)
 		return
 	end
 
-	syncMissions(player)
 	local cleanData = serializeData(data)
 
 	local success, err = pcall(function()
@@ -447,22 +421,6 @@ getDailyRewardStatus.OnServerInvoke = function(player)
 		})
 	end
 
-	-- Estado persistido das missões (progresso + coletadas) para o menu
-	local mprog = playerMissionProgress[player] or {}
-	local missionsStatus = {}
-	for _, mission in ipairs(dailyMissions) do
-		table.insert(missionsStatus, {
-			id = mission.id,
-			name = mission.name,
-			description = mission.description,
-			icon = mission.icon,
-			target = mission.target,
-			progress = math.min(mprog[mission.id] or 0, mission.target),
-			claimed = (data.missionsClaimed and data.missionsClaimed[mission.id]) and true or false,
-			reward = mission.reward,
-		})
-	end
-
 	return {
 		canClaim = canClaim,
 		message = message or "",
@@ -473,7 +431,6 @@ getDailyRewardStatus.OnServerInvoke = function(player)
 		rewards = enhancedRewards,
 		canRecover = data.canRecoverDay or false,
 		missionsCompleted = data.missionsCompleted or 0,
-		missions = missionsStatus,
 		isWeekend = isWeekend(),
 	}
 end
@@ -519,158 +476,17 @@ recoverLostDay.OnServerInvoke = function(player)
 end
 
 -- =====================================
--- MISSÕES: STATUS + RESGATE (RemoteFunctions que o MissionsMenuClient usa)
--- =====================================
-
--- Monta o payload no contrato esperado pelo cliente de missões
-local function buildMissionPayload(player)
-	local data = playerDailyData[player]
-	local prog = playerMissionProgress[player]
-	if not data or not prog then
-		return { missions = {}, completed = 0, total = #dailyMissions, claimed = 0 }
-	end
-
-	-- reset diário defensivo
-	local hoje = getDayTimestamp()
-	if data.missionsDay ~= hoje then
-		data.missionsDay = hoje
-		data.missionsClaimed = {}
-		data.missionsProgress = {}
-		for _, m in ipairs(dailyMissions) do
-			prog[m.id] = 0
-		end
-	end
-	data.missionsClaimed = data.missionsClaimed or {}
-
-	local missions = {}
-	local completed, claimedCount = 0, 0
-	for _, mission in ipairs(dailyMissions) do
-		local current = prog[mission.id] or 0
-		local isClaimed = data.missionsClaimed[mission.id] and true or false
-		local isDone = current >= mission.target
-		if isDone then
-			completed = completed + 1
-		end
-		if isClaimed then
-			claimedCount = claimedCount + 1
-		end
-		table.insert(missions, {
-			id = mission.id,
-			title = mission.name,
-			description = mission.description,
-			current = math.min(current, mission.target),
-			goal = mission.target,
-			progress = math.clamp(current / mission.target, 0, 1),
-			rewards = { coins = mission.reward.coins, bounty = mission.reward.bounty },
-			canClaim = isDone and not isClaimed,
-			claimed = isClaimed,
-		})
-	end
-
-	return {
-		missions = missions,
-		completed = completed,
-		total = #dailyMissions,
-		claimed = claimedCount,
-	}
-end
-
-getMissionStatus.OnServerInvoke = function(player)
-	return buildMissionPayload(player)
-end
-
--- Retorna: (sucesso, mensagem, payloadAtualizado)
-claimMissionReward.OnServerInvoke = function(player, missionId)
-	local data = playerDailyData[player]
-	local prog = playerMissionProgress[player]
-	if not data or not prog then
-		return false, "Dados não encontrados."
-	end
-
-	local mission
-	for _, m in ipairs(dailyMissions) do
-		if m.id == missionId then
-			mission = m
-			break
-		end
-	end
-	if not mission then
-		return false, "Missão inválida."
-	end
-
-	data.missionsClaimed = data.missionsClaimed or {}
-	if data.missionsClaimed[missionId] then
-		return false, "Missão já resgatada."
-	end
-	if (prog[missionId] or 0) < mission.target then
-		return false, "Missão ainda não concluída."
-	end
-
-	-- concede recompensa e SALVA (corrige "não salva as missões realizadas")
-	data.missionsClaimed[missionId] = true
-	data.missionsCompleted = (data.missionsCompleted or 0) + 1
-	if _G.PlayerDataManager then
-		_G.PlayerDataManager.updateCoins(player, mission.reward.coins)
-		_G.PlayerDataManager.updateBounty(player, mission.reward.bounty)
-		_G.PlayerDataManager.savePlayerData(player)
-	end
-	saveDailyData(player)
-
-	print(string.format("[DAILY V3] ✅ %s resgatou a missão '%s'", player.Name, mission.id))
-	local msg = string.format("+%d Moedas +%d Bounty", mission.reward.coins, mission.reward.bounty)
-	return true, msg, buildMissionPayload(player)
-end
-
--- API global para outros sistemas somarem progresso (kills, moedas, etc.)
--- Ex: _G.AddMissionProgress(player, "kills", 1)
-_G.AddMissionProgress = function(player, missionId, amount)
-	local prog = playerMissionProgress[player]
-	local data = playerDailyData[player]
-	if not prog or not data then
-		return
-	end
-	if data.missionsClaimed and data.missionsClaimed[missionId] then
-		return
-	end
-	prog[missionId] = (prog[missionId] or 0) + (amount or 1)
-	syncMissions(player)
-	saveDailyData(player)
-end
-
--- =====================================
 -- EVENTOS DE JOGADOR
 -- =====================================
 
 Players.PlayerAdded:Connect(function(player)
 	loadDailyData(player)
 
-	-- Inicializar/restaurar progresso de missões (com reset diário)
-	local ddata = playerDailyData[player]
-	local hoje = getDayTimestamp()
-	if not ddata.missionsDay or ddata.missionsDay ~= hoje then
-		-- novo dia: zera missões (progresso + coletadas)
-		ddata.missionsDay = hoje
-		ddata.missionsClaimed = {}
-		ddata.missionsProgress = {}
-	end
-	ddata.missionsClaimed = ddata.missionsClaimed or {}
-	ddata.missionsProgress = ddata.missionsProgress or {}
+	-- Inicializar progresso de missões
 	playerMissionProgress[player] = {}
 	for _, mission in ipairs(dailyMissions) do
-		playerMissionProgress[player][mission.id] = tonumber(ddata.missionsProgress[mission.id])
-			or 0
+		playerMissionProgress[player][mission.id] = 0
 	end
-
-	-- Progresso automático da missão de tempo de jogo (sem salvar a cada segundo)
-	task.spawn(function()
-		while player.Parent do
-			task.wait(1)
-			local prog = playerMissionProgress[player]
-			if prog and (prog.playtime or 0) < 1800 then
-				prog.playtime = (prog.playtime or 0) + 1
-			end
-		end
-	end)
 
 	-- Verificar bônus expirados
 	spawn(function()
