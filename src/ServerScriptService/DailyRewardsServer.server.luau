@@ -34,13 +34,15 @@ until _G.PlayerDataManager
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local function getOrCreateRemote(name, remoteType)
+	local className = remoteType == "Function" and "RemoteFunction" or "RemoteEvent"
 	local remote = remotes:FindFirstChild(name)
+	-- Se existir com o TIPO ERRADO (ex: Event onde precisa de Function), substitui
+	if remote and not remote:IsA(className) then
+		remote.Parent = nil
+		remote = nil
+	end
 	if not remote then
-		if remoteType == "Function" then
-			remote = Instance.new("RemoteFunction")
-		else
-			remote = Instance.new("RemoteEvent")
-		end
+		remote = Instance.new(className)
 		remote.Name = name
 		remote.Parent = remotes
 		print("[DAILY V3] ✓ Remote criado: " .. name)
@@ -50,7 +52,8 @@ end
 
 local claimDailyReward = getOrCreateRemote("ClaimDailyReward", "Function")
 local getDailyRewardStatus = getOrCreateRemote("GetDailyRewardStatus", "Function")
-local claimMissionReward = getOrCreateRemote("ClaimMissionReward", "Event")
+local claimMissionReward = getOrCreateRemote("ClaimMissionReward", "Function")
+local getMissionStatus = getOrCreateRemote("GetMissionStatus", "Function")
 local recoverLostDay = getOrCreateRemote("RecoverLostDay", "Function")
 
 -- =====================================
@@ -516,14 +519,15 @@ recoverLostDay.OnServerInvoke = function(player)
 end
 
 -- =====================================
--- COLETAR RECOMPENSA DE MISSÃO (corrige: antes não havia handler -> não salvava)
+-- MISSÕES: STATUS + RESGATE (RemoteFunctions que o MissionsMenuClient usa)
 -- =====================================
 
-claimMissionReward.OnServerEvent:Connect(function(player, missionId)
+-- Monta o payload no contrato esperado pelo cliente de missões
+local function buildMissionPayload(player)
 	local data = playerDailyData[player]
 	local prog = playerMissionProgress[player]
 	if not data or not prog then
-		return
+		return { missions = {}, completed = 0, total = #dailyMissions, claimed = 0 }
 	end
 
 	-- reset diário defensivo
@@ -536,6 +540,52 @@ claimMissionReward.OnServerEvent:Connect(function(player, missionId)
 			prog[m.id] = 0
 		end
 	end
+	data.missionsClaimed = data.missionsClaimed or {}
+
+	local missions = {}
+	local completed, claimedCount = 0, 0
+	for _, mission in ipairs(dailyMissions) do
+		local current = prog[mission.id] or 0
+		local isClaimed = data.missionsClaimed[mission.id] and true or false
+		local isDone = current >= mission.target
+		if isDone then
+			completed = completed + 1
+		end
+		if isClaimed then
+			claimedCount = claimedCount + 1
+		end
+		table.insert(missions, {
+			id = mission.id,
+			title = mission.name,
+			description = mission.description,
+			current = math.min(current, mission.target),
+			goal = mission.target,
+			progress = math.clamp(current / mission.target, 0, 1),
+			rewards = { coins = mission.reward.coins, bounty = mission.reward.bounty },
+			canClaim = isDone and not isClaimed,
+			claimed = isClaimed,
+		})
+	end
+
+	return {
+		missions = missions,
+		completed = completed,
+		total = #dailyMissions,
+		claimed = claimedCount,
+	}
+end
+
+getMissionStatus.OnServerInvoke = function(player)
+	return buildMissionPayload(player)
+end
+
+-- Retorna: (sucesso, mensagem, payloadAtualizado)
+claimMissionReward.OnServerInvoke = function(player, missionId)
+	local data = playerDailyData[player]
+	local prog = playerMissionProgress[player]
+	if not data or not prog then
+		return false, "Dados não encontrados."
+	end
 
 	local mission
 	for _, m in ipairs(dailyMissions) do
@@ -545,18 +595,18 @@ claimMissionReward.OnServerEvent:Connect(function(player, missionId)
 		end
 	end
 	if not mission then
-		return
+		return false, "Missão inválida."
 	end
 
 	data.missionsClaimed = data.missionsClaimed or {}
 	if data.missionsClaimed[missionId] then
-		return -- já coletada hoje
+		return false, "Missão já resgatada."
 	end
 	if (prog[missionId] or 0) < mission.target then
-		return -- ainda não concluída
+		return false, "Missão ainda não concluída."
 	end
 
-	-- concede recompensa e SALVA
+	-- concede recompensa e SALVA (corrige "não salva as missões realizadas")
 	data.missionsClaimed[missionId] = true
 	data.missionsCompleted = (data.missionsCompleted or 0) + 1
 	if _G.PlayerDataManager then
@@ -566,21 +616,10 @@ claimMissionReward.OnServerEvent:Connect(function(player, missionId)
 	end
 	saveDailyData(player)
 
-	local notifyRemote = remotes:FindFirstChild("ShowNotification")
-	if notifyRemote then
-		notifyRemote:FireClient(player, {
-			title = "✅ Missão concluída!",
-			message = string.format(
-				"%s\n+%d Moedas +%d Bounty",
-				mission.name,
-				mission.reward.coins,
-				mission.reward.bounty
-			),
-			duration = 3,
-		})
-	end
-	print(string.format("[DAILY V3] ✅ %s coletou a missão '%s'", player.Name, mission.id))
-end)
+	print(string.format("[DAILY V3] ✅ %s resgatou a missão '%s'", player.Name, mission.id))
+	local msg = string.format("+%d Moedas +%d Bounty", mission.reward.coins, mission.reward.bounty)
+	return true, msg, buildMissionPayload(player)
+end
 
 -- API global para outros sistemas somarem progresso (kills, moedas, etc.)
 -- Ex: _G.AddMissionProgress(player, "kills", 1)
