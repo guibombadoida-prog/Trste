@@ -1,22 +1,29 @@
 --!strict
 -- ============================================
 -- TELA DE CARREGAMENTO — Campo de Batalha / Do Chaos
--- Coloque em: ReplicatedFirst
--- Nome: "LoadingScreen"  (tipo: LocalScript)
+-- Coloque em: ReplicatedFirst   ·   Nome: "LoadingScreen" (LocalScript)
 -- ============================================
--- Mostra uma tela retro enquanto o jogo carrega e some sozinha
--- quando tudo estiver pronto (game:IsLoaded()).
+-- APARECIMENTO FORÇADO:
+--  • GUI criada imediatamente, DisplayOrder máximo, fundo opaco que cobre tudo
+--  • Tempo MÍNIMO garantido na tela (mesmo se o jogo já estiver carregado)
+--  • Limite anti-trava (nunca fica preso esperando o jogo carregar)
 -- ============================================
 
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
--- Remove a tela de carregamento padrao do Roblox.
-ReplicatedFirst:RemoveDefaultLoadingScreen()
+print("[LOADING] script iniciado")
+
+-- Remove a tela de carregamento padrao do Roblox (protegido).
+pcall(function()
+	ReplicatedFirst:RemoveDefaultLoadingScreen()
+end)
+
+local MIN_DISPLAY = 5 -- segundos MÍNIMOS visíveis (forçado)
+local MAX_WAIT = 25 -- nunca trava esperando o jogo carregar
 
 -- LocalPlayer pode ainda nao estar disponivel em ReplicatedFirst.
--- Esperar a PROPRIEDADE LocalPlayer (NUNCA PlayerAdded:Wait, que trava aqui).
 local player = Players.LocalPlayer
 if not player then
 	Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
@@ -24,18 +31,21 @@ if not player then
 end
 local playerGui = player:WaitForChild("PlayerGui")
 
+local startTime = os.clock()
+
 -- Paleta retro.
 local COR_FUNDO = Color3.fromRGB(10, 8, 24)
 local COR_NEON = Color3.fromRGB(0, 255, 170)
 local COR_NEON2 = Color3.fromRGB(255, 0, 120)
 local COR_TEXTO = Color3.fromRGB(235, 235, 245)
 
--- ScreenGui em primeiro plano.
+-- ScreenGui em PRIMEIRO PLANO ABSOLUTO.
 local gui = Instance.new("ScreenGui")
 gui.Name = "LoadingScreen"
 gui.IgnoreGuiInset = true
-gui.DisplayOrder = 1000
+gui.DisplayOrder = 2147483647 -- máximo: fica acima de qualquer outra GUI
 gui.ResetOnSpawn = false
+gui.Enabled = true
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
 
@@ -43,7 +53,10 @@ local fundo = Instance.new("Frame")
 fundo.Name = "Fundo"
 fundo.Size = UDim2.fromScale(1, 1)
 fundo.BackgroundColor3 = COR_FUNDO
+fundo.BackgroundTransparency = 0
 fundo.BorderSizePixel = 0
+fundo.Active = true -- bloqueia cliques no que está atrás
+fundo.ZIndex = 1
 fundo.Parent = gui
 
 -- Titulo do jogo.
@@ -57,6 +70,7 @@ titulo.Font = Enum.Font.Arcade
 titulo.Text = "CAMPO DE BATALHA / DO CHAOS"
 titulo.TextScaled = true
 titulo.TextColor3 = COR_NEON
+titulo.ZIndex = 2
 titulo.Parent = fundo
 
 local tituloStroke = Instance.new("UIStroke")
@@ -75,6 +89,7 @@ status.Font = Enum.Font.Code
 status.Text = "CARREGANDO"
 status.TextScaled = true
 status.TextColor3 = COR_TEXTO
+status.ZIndex = 2
 status.Parent = fundo
 
 -- Trilho da barra de progresso.
@@ -85,6 +100,7 @@ trilho.Position = UDim2.fromScale(0.5, 0.66)
 trilho.Size = UDim2.fromScale(0.6, 0.04)
 trilho.BackgroundColor3 = Color3.fromRGB(30, 26, 50)
 trilho.BorderSizePixel = 0
+trilho.ZIndex = 2
 trilho.Parent = fundo
 
 local trilhoStroke = Instance.new("UIStroke")
@@ -98,6 +114,7 @@ barra.Name = "Barra"
 barra.Size = UDim2.fromScale(0, 1)
 barra.BackgroundColor3 = COR_NEON
 barra.BorderSizePixel = 0
+barra.ZIndex = 3
 barra.Parent = trilho
 
 -- Porcentagem do carregamento.
@@ -111,7 +128,10 @@ porcento.Font = Enum.Font.Code
 porcento.Text = "0%"
 porcento.TextScaled = true
 porcento.TextColor3 = COR_NEON
+porcento.ZIndex = 2
 porcento.Parent = fundo
+
+print("[LOADING] tela criada e exibida")
 
 -- Animacao de "..." no texto de status.
 local rodando = true
@@ -134,7 +154,6 @@ task.spawn(function()
 	end
 end)
 
--- Acompanha o progresso real de carregamento do jogo.
 local function definirProgresso(fracao: number)
 	local f = math.clamp(fracao, 0, 1)
 	porcento.Text = string.format("%d%%", math.floor(f * 100))
@@ -143,25 +162,38 @@ local function definirProgresso(fracao: number)
 	}):Play()
 end
 
--- Anima a barra subindo gradualmente ate o jogo carregar.
+-- Barra acompanha o tempo mínimo + carregamento (sobe ate 90% sozinha).
 task.spawn(function()
-	local progressoFake = 0
-	while rodando and not game:IsLoaded() do
-		progressoFake = math.min(progressoFake + 0.04, 0.9)
-		definirProgresso(progressoFake)
-		task.wait(0.15)
+	while rodando do
+		local porTempo = (os.clock() - startTime) / MIN_DISPLAY
+		definirProgresso(math.min(porTempo, 0.9))
+		task.wait(0.1)
 	end
 end)
 
--- Espera o jogo terminar de carregar.
-if not game:IsLoaded() then
-	game.Loaded:Wait()
+-- Esperar o jogo carregar SEM TRAVAR (limite de MAX_WAIT).
+local loaded = game:IsLoaded()
+if not loaded then
+	task.spawn(function()
+		game.Loaded:Wait()
+		loaded = true
+	end)
+end
+while not loaded and (os.clock() - startTime) < MAX_WAIT do
+	task.wait(0.1)
+end
+
+-- FORÇA o tempo mínimo de exibição (mesmo se o jogo já estava carregado).
+while (os.clock() - startTime) < MIN_DISPLAY do
+	task.wait(0.1)
 end
 
 rodando = false
 definirProgresso(1)
 status.Text = "PRONTO!"
-task.wait(0.6)
+task.wait(0.5)
+
+print("[LOADING] sumindo")
 
 -- Desaparece suavemente e remove a GUI.
 local fade = TweenService:Create(fundo, TweenInfo.new(0.8, Enum.EasingStyle.Quad), {
