@@ -4,6 +4,7 @@
 -- ============================================
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 repeat
 	task.wait()
@@ -34,6 +35,7 @@ end
 
 local getMissionStatus = ensureRemote("GetMissionStatus", "RemoteFunction")
 local claimMissionReward = ensureRemote("ClaimMissionReward", "RemoteFunction")
+local missionUpdate = ensureRemote("MissionUpdate", "RemoteEvent") -- server -> client (ao vivo)
 
 local MISSIONS = {
 	{
@@ -196,7 +198,44 @@ claimMissionReward.OnServerInvoke = function(player, missionId)
 	end
 	_G.PlayerDataManager.savePlayerData(player)
 
-	return true, "Recompensa resgatada!", buildMissionPayload(player)
+	local payload = buildMissionPayload(player)
+	missionUpdate:FireClient(player, payload) -- atualiza o menu ao vivo
+	return true, "Recompensa resgatada!", payload
 end
+
+-- ============================================
+-- MONITOR: empurra atualização ao vivo quando o estado das missões muda
+-- (ex: o jogador progrediu uma missão e agora pode resgatar)
+-- ============================================
+local lastSignature = {}
+
+local function signature(payload)
+	local parts = {}
+	for _, m in ipairs(payload.missions) do
+		local mark = m.claimed and "C" or (m.canClaim and "R" or tostring(m.current))
+		table.insert(parts, m.id .. ":" .. mark)
+	end
+	return table.concat(parts, "|")
+end
+
+task.spawn(function()
+	while true do
+		task.wait(3)
+		for _, player in ipairs(Players:GetPlayers()) do
+			local ok, payload = pcall(buildMissionPayload, player)
+			if ok and payload then
+				local sig = signature(payload)
+				if lastSignature[player] ~= sig then
+					lastSignature[player] = sig
+					missionUpdate:FireClient(player, payload)
+				end
+			end
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+	lastSignature[p] = nil
+end)
 
 print("[MISSIONS V1] Sistema de missoes carregado")

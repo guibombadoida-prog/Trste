@@ -483,6 +483,30 @@ end
 
 createInterface()
 
+-- Atualização AO VIVO vinda do servidor (Remotes.MissionUpdate)
+task.spawn(function()
+	local updateEvent
+	local elapsed = 0
+	while elapsed < 12 do
+		local r = remotes:FindFirstChild("MissionUpdate")
+		if r and r:IsA("RemoteEvent") then
+			updateEvent = r
+			break
+		end
+		task.wait(0.3)
+		elapsed += 0.3
+	end
+	if updateEvent then
+		updateEvent.OnClientEvent:Connect(function(payload)
+			currentPayload = payload
+			setMissionNotification(payload)
+			if isOpen and missionGui and missionGui.Parent then
+				renderMissions(payload)
+			end
+		end)
+	end
+end)
+
 -- Registrar no Menu Unificado
 task.spawn(function()
 	local timeout = 0
