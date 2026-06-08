@@ -265,7 +265,7 @@ local isOpen = false
 local currentStep = 1
 local isTyping = false
 local typeToken = 0 -- ID de geração do typewriter (cancela o anterior de verdade)
-local arrowBounceConn = nil -- loop da animação da seta
+local arrowToken = 0 -- geração do loop da seta (cancela o anterior sem :Disconnect)
 
 -- =====================================
 -- CRIAR INTERFACE
@@ -597,11 +597,11 @@ local function createTutorialInterface()
 
 	-- Posiciona e configura a seta
 	local function setArrow(step)
-		-- Cancelar bounce anterior
-		if arrowBounceConn then
-			arrowBounceConn:Disconnect()
-			arrowBounceConn = nil
-		end
+		-- Para o bounce anterior incrementando o token (o loop antigo sai sozinho).
+		-- BUGFIX: antes usava arrowBounceConn:Disconnect() numa THREAD (task.spawn),
+		-- o que causava "attempt to index thread with 'Disconnect'".
+		arrowToken = arrowToken + 1
+		local myToken = arrowToken
 
 		if not step.arrow then
 			arrowContainer.Visible = false
@@ -618,8 +618,13 @@ local function createTutorialInterface()
 		arrowContainer.Visible = true
 
 		-- Animação bounce — pulso de cor na borda
-		arrowBounceConn = task.spawn(function()
-			while arrowContainer and arrowContainer.Parent and arrowContainer.Visible do
+		task.spawn(function()
+			while
+				arrowContainer
+				and arrowContainer.Parent
+				and arrowContainer.Visible
+				and myToken == arrowToken
+			do
 				TweenService:Create(
 					arrowContainer,
 					TweenInfo.new(0.5, Enum.EasingStyle.Sine),
@@ -758,12 +763,9 @@ local function createTutorialInterface()
 		isOpen = false
 		isTyping = false
 
-		-- Esconder seta
+		-- Esconder seta (para o bounce via token, sem :Disconnect numa thread)
 		arrowContainer.Visible = false
-		if arrowBounceConn then
-			arrowBounceConn:Disconnect()
-			arrowBounceConn = nil
-		end
+		arrowToken = arrowToken + 1
 
 		TweenService:Create(
 			dialogFrame,

@@ -15,8 +15,13 @@ local TweenService = game:GetService("TweenService")
 -- Remove a tela de carregamento padrao do Roblox.
 ReplicatedFirst:RemoveDefaultLoadingScreen()
 
--- LocalPlayer pode ainda nao estar disponivel em ReplicatedFirst; garante nao-nil.
-local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+-- LocalPlayer pode ainda nao estar disponivel em ReplicatedFirst.
+-- Esperar a PROPRIEDADE LocalPlayer (NUNCA PlayerAdded:Wait, que trava aqui).
+local player = Players.LocalPlayer
+if not player then
+	Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+	player = Players.LocalPlayer
+end
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Paleta retro.

@@ -134,6 +134,10 @@ local function serializeData(data)
 		canRecoverDay = data.canRecoverDay and true or false,
 		lastRecoveryUse = tonumber(data.lastRecoveryUse) or 0,
 		missionsCompleted = tonumber(data.missionsCompleted) or 0,
+		-- Persistência das missões diárias (corrige "não salva missões realizadas")
+		missionsDay = tonumber(data.missionsDay) or 0,
+		missionsClaimed = type(data.missionsClaimed) == "table" and data.missionsClaimed or {},
+		missionsProgress = type(data.missionsProgress) == "table" and data.missionsProgress or {},
 	}
 
 	return cleanData
@@ -153,6 +157,9 @@ local function deserializeData(data)
 		canRecoverDay = data.canRecoverDay or false,
 		lastRecoveryUse = tonumber(data.lastRecoveryUse) or 0,
 		missionsCompleted = tonumber(data.missionsCompleted) or 0,
+		missionsDay = tonumber(data.missionsDay) or 0,
+		missionsClaimed = type(data.missionsClaimed) == "table" and data.missionsClaimed or {},
+		missionsProgress = type(data.missionsProgress) == "table" and data.missionsProgress or {},
 	}
 end
 
@@ -185,11 +192,26 @@ local function loadDailyData(player)
 			canRecoverDay = false,
 			lastRecoveryUse = 0,
 			missionsCompleted = 0,
+			missionsDay = 0,
+			missionsClaimed = {},
+			missionsProgress = {},
 		}
 		print(string.format("[DAILY V3] ✓ Dados padrão criados: %s", player.Name))
 	end
 
 	return playerDailyData[player]
+end
+
+-- Sincroniza o progresso em memória das missões para o objeto persistido
+local function syncMissions(player)
+	local data = playerDailyData[player]
+	local prog = playerMissionProgress[player]
+	if data and prog then
+		data.missionsProgress = data.missionsProgress or {}
+		for id, v in pairs(prog) do
+			data.missionsProgress[id] = v
+		end
+	end
 end
 
 local function saveDailyData(player)
@@ -200,6 +222,7 @@ local function saveDailyData(player)
 		return
 	end
 
+	syncMissions(player)
 	local cleanData = serializeData(data)
 
 	local success, err = pcall(function()
@@ -421,6 +444,22 @@ getDailyRewardStatus.OnServerInvoke = function(player)
 		})
 	end
 
+	-- Estado persistido das missões (progresso + coletadas) para o menu
+	local mprog = playerMissionProgress[player] or {}
+	local missionsStatus = {}
+	for _, mission in ipairs(dailyMissions) do
+		table.insert(missionsStatus, {
+			id = mission.id,
+			name = mission.name,
+			description = mission.description,
+			icon = mission.icon,
+			target = mission.target,
+			progress = math.min(mprog[mission.id] or 0, mission.target),
+			claimed = (data.missionsClaimed and data.missionsClaimed[mission.id]) and true or false,
+			reward = mission.reward,
+		})
+	end
+
 	return {
 		canClaim = canClaim,
 		message = message or "",
@@ -431,6 +470,7 @@ getDailyRewardStatus.OnServerInvoke = function(player)
 		rewards = enhancedRewards,
 		canRecover = data.canRecoverDay or false,
 		missionsCompleted = data.missionsCompleted or 0,
+		missions = missionsStatus,
 		isWeekend = isWeekend(),
 	}
 end
@@ -476,17 +516,122 @@ recoverLostDay.OnServerInvoke = function(player)
 end
 
 -- =====================================
+-- COLETAR RECOMPENSA DE MISSÃO (corrige: antes não havia handler -> não salvava)
+-- =====================================
+
+claimMissionReward.OnServerEvent:Connect(function(player, missionId)
+	local data = playerDailyData[player]
+	local prog = playerMissionProgress[player]
+	if not data or not prog then
+		return
+	end
+
+	-- reset diário defensivo
+	local hoje = getDayTimestamp()
+	if data.missionsDay ~= hoje then
+		data.missionsDay = hoje
+		data.missionsClaimed = {}
+		data.missionsProgress = {}
+		for _, m in ipairs(dailyMissions) do
+			prog[m.id] = 0
+		end
+	end
+
+	local mission
+	for _, m in ipairs(dailyMissions) do
+		if m.id == missionId then
+			mission = m
+			break
+		end
+	end
+	if not mission then
+		return
+	end
+
+	data.missionsClaimed = data.missionsClaimed or {}
+	if data.missionsClaimed[missionId] then
+		return -- já coletada hoje
+	end
+	if (prog[missionId] or 0) < mission.target then
+		return -- ainda não concluída
+	end
+
+	-- concede recompensa e SALVA
+	data.missionsClaimed[missionId] = true
+	data.missionsCompleted = (data.missionsCompleted or 0) + 1
+	if _G.PlayerDataManager then
+		_G.PlayerDataManager.updateCoins(player, mission.reward.coins)
+		_G.PlayerDataManager.updateBounty(player, mission.reward.bounty)
+		_G.PlayerDataManager.savePlayerData(player)
+	end
+	saveDailyData(player)
+
+	local notifyRemote = remotes:FindFirstChild("ShowNotification")
+	if notifyRemote then
+		notifyRemote:FireClient(player, {
+			title = "✅ Missão concluída!",
+			message = string.format(
+				"%s\n+%d Moedas +%d Bounty",
+				mission.name,
+				mission.reward.coins,
+				mission.reward.bounty
+			),
+			duration = 3,
+		})
+	end
+	print(string.format("[DAILY V3] ✅ %s coletou a missão '%s'", player.Name, mission.id))
+end)
+
+-- API global para outros sistemas somarem progresso (kills, moedas, etc.)
+-- Ex: _G.AddMissionProgress(player, "kills", 1)
+_G.AddMissionProgress = function(player, missionId, amount)
+	local prog = playerMissionProgress[player]
+	local data = playerDailyData[player]
+	if not prog or not data then
+		return
+	end
+	if data.missionsClaimed and data.missionsClaimed[missionId] then
+		return
+	end
+	prog[missionId] = (prog[missionId] or 0) + (amount or 1)
+	syncMissions(player)
+	saveDailyData(player)
+end
+
+-- =====================================
 -- EVENTOS DE JOGADOR
 -- =====================================
 
 Players.PlayerAdded:Connect(function(player)
 	loadDailyData(player)
 
-	-- Inicializar progresso de missões
+	-- Inicializar/restaurar progresso de missões (com reset diário)
+	local ddata = playerDailyData[player]
+	local hoje = getDayTimestamp()
+	if not ddata.missionsDay or ddata.missionsDay ~= hoje then
+		-- novo dia: zera missões (progresso + coletadas)
+		ddata.missionsDay = hoje
+		ddata.missionsClaimed = {}
+		ddata.missionsProgress = {}
+	end
+	ddata.missionsClaimed = ddata.missionsClaimed or {}
+	ddata.missionsProgress = ddata.missionsProgress or {}
 	playerMissionProgress[player] = {}
 	for _, mission in ipairs(dailyMissions) do
-		playerMissionProgress[player][mission.id] = 0
+		playerMissionProgress[player][mission.id] = tonumber(ddata.missionsProgress[mission.id])
+			or 0
 	end
+
+	-- Progresso automático da missão de tempo de jogo (sem salvar a cada segundo)
+	task.spawn(function()
+		while player.Parent do
+			task.wait(1)
+			local prog = playerMissionProgress[player]
+			if prog and (prog.playtime or 0) < 1800 then
+				prog.playtime = (prog.playtime or 0) + 1
+			end
+		end
+	end)
 
 	-- Verificar bônus expirados
 	spawn(function()
